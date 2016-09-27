@@ -38,7 +38,9 @@ or
   - groupvar: value
   hosts:
   - myhost1
-  - myhost2
+  - host: myhost2
+    vars:
+      myvcr: vclue
   groups:
   - subgroup1
   - subgroup2
@@ -157,16 +159,27 @@ def parse_yaml(yaml_hosts):
                 parse_vars(entry['vars'], group)
 
             if 'hosts' in entry:
-                for host_name in entry['hosts']:
+                for host_entry in entry['hosts']:
                     host = None
+
+                    if type(host_entry) in [str, unicode]:
+		        host_name = host_entry
+                    else:
+                        host_name = host_entry['host'] 
+
                     for test_host in all_hosts.get_hosts():
                         if test_host.name == host_name:
                             host = test_host
                             break
                     else:
                         host = Host(host_name)
-                        all_hosts.add_host(host)
-                    group.add_host(host)
+
+                    all_hosts.add_host(host)
+		    group.add_host(host)
+
+                    if type(host_entry) not in [str, unicode]:
+                        if 'vars' in host_entry:
+                            parse_vars(host_entry['vars'], host)
 
             if 'groups' in entry:
                 for subgroup in entry['groups']:
@@ -189,6 +202,7 @@ def parse_yaml(yaml_hosts):
                 ungrouped.add_host(host)
 
         elif 'host' in entry:
+            print entry
             host = None
             no_group = False
             for test_host in all_hosts.get_hosts():
