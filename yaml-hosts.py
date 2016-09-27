@@ -217,7 +217,6 @@ def parse_yaml(yaml_hosts):
                 ungrouped.add_host(host)
 
         elif 'host' in entry:
-            print entry
             host = None
             no_group = False
             for test_host in all_hosts.get_hosts():
@@ -251,7 +250,7 @@ def parse_yaml(yaml_hosts):
 base_dir = os.path.dirname(os.path.realpath(__file__))
 
 parser = OptionParser()
-parser.add_option('-f', '--file', default=os.path.join(base_dir,"hosts.yaml"), dest="yaml_file")
+parser.add_option('-f', '--file', default=os.path.join(base_dir, "hosts.yaml"), dest="yaml_file")
 parser.add_option('-l', '--list', default=False, dest="list_hosts", action="store_true")
 parser.add_option('-H', '--host', default=None, dest="host")
 parser.add_option('-e', '--extra-vars', default=None, dest="extra")
@@ -266,10 +265,22 @@ groups, all_hosts = parse_yaml(yaml_hosts)
 
 if options.list_hosts == True:
     result = {}
+    result['_meta'] = {}
+    result['_meta']['hostvars'] = {}
     for group in groups:
-        if group.name != 'all':
-            result[group.name] = [host.name for host in group.get_hosts()]
+        result[group.name]={}
+        result[group.name]['hosts'] = [host.name for host in group.get_hosts()]
+        result[group.name]['vars'] = group.vars
+        result[group.name]['children'] = [subgroup.name for subgroup in group.subgroups if subgroup.name != 'all']
+    for host in all_hosts.get_hosts():
+        result['_meta']['hostvars'][host.name] = host.get_variables()
+        if options.extra:
+            k,v = options.extra.split("=")
+            result[k] = v
+
     print json.dumps(result)
+    print json.dumps(result, sort_keys=True,
+        indent=4, separators=(',', ': '))
     sys.exit(0)
 
 if options.host is not None:
