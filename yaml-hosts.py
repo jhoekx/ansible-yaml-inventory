@@ -94,9 +94,10 @@ class Group():
         """ List all hosts in this group, including subgroups """
         result = [ host for host in self.hosts ]
         for group in self.subgroups:
-            for host in group.get_hosts():
-                if host not in result:
-                    result.append(host)
+            if group.name != 'all':
+                for host in group.get_hosts():
+                    if host not in result:
+                        result.append(host)
         return result
 
     def add_host(self, host):
@@ -242,16 +243,21 @@ def parse_yaml(yaml_hosts):
             if no_group:
                 ungrouped.add_host(host)
 
+    for group in groups:
+      group.add_subgroup(all_hosts)
+
     return groups, all_hosts
 
+base_dir = os.path.dirname(os.path.realpath(__file__))
+
 parser = OptionParser()
+parser.add_option('-f', '--file', default=os.path.join(base_dir,"hosts.yaml"), dest="yaml_file")
 parser.add_option('-l', '--list', default=False, dest="list_hosts", action="store_true")
 parser.add_option('-H', '--host', default=None, dest="host")
 parser.add_option('-e', '--extra-vars', default=None, dest="extra")
 options, args = parser.parse_args()
 
-base_dir = os.path.dirname(os.path.realpath(__file__))
-hosts_file = os.path.join(base_dir, 'hosts.yml')
+hosts_file = options.yaml_file
 
 with open(hosts_file) as f:
     yaml_hosts = yaml.load( f.read() )
@@ -261,7 +267,8 @@ groups, all_hosts = parse_yaml(yaml_hosts)
 if options.list_hosts == True:
     result = {}
     for group in groups:
-        result[group.name] = [host.name for host in group.get_hosts()]
+        if group.name != 'all':
+            result[group.name] = [host.name for host in group.get_hosts()]
     print json.dumps(result)
     sys.exit(0)
 
