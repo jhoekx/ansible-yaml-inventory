@@ -112,6 +112,7 @@ class Group():
     def add_parent(self, group):
         if group not in self.parents:
             self.parents.append(group)
+            group.add_subgroup(self)
 
     def set_variable(self, key, value):
         self.vars[key] = value
@@ -148,6 +149,7 @@ def parse_yaml(yaml_hosts):
 
     ### groups first, so hosts can be added to 'ungrouped' if necessary
     subgroups = []
+    parents = []
     for entry in yaml_hosts:
         if 'group' in entry and type(entry)==dict:
             group = find_group(entry['group'], groups)
@@ -185,10 +187,22 @@ def parse_yaml(yaml_hosts):
                 for subgroup in entry['groups']:
                     subgroups.append((group.name, subgroup))
 
+            if 'parents' in entry:
+                for parent in entry['parents']:
+                    parents.append((group.name, parent))
+
     for name, sub_name in subgroups:
         group = find_group(name, groups)
         subgroup = find_group(sub_name, groups)
         group.add_subgroup(subgroup)
+
+    for name, parent_name in parents:
+        group = find_group(name, groups)
+        parent = find_group(parent_name, groups)
+        if not parent:
+            parent = Group(parent_name)
+            groups.append(parent)
+        group.add_parent(parent)
 
     for entry in yaml_hosts:
         ### a host is either a dict or a single line definition
