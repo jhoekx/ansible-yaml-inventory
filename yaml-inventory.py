@@ -50,6 +50,17 @@ or
 
 Any statement except the first definition is optional.
 
+A group label: sets a variable on the group with the label key. eg:
+
+- group: james
+  label: name
+
+is identical to:
+
+- group: james
+  vars: 
+    - name: james
+
 Nesting is also allowed:
 
 - group: all
