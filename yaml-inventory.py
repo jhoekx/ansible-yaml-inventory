@@ -200,6 +200,11 @@ def find_host(name):
         if name == host.name:
             return host
 
+def import_vars(vars, obj):
+    for var_file in vars:
+        with open(var_file) as f:
+            parse_vars(yaml.load(f.read()), obj)
+
 def parse_vars(vars, obj):
     ### vars can be a list of dicts or a dictionary
     if type(vars) == dict:
@@ -225,6 +230,9 @@ def parse_group(entry):
 
     if 'label' in entry:
         group.set_variable(entry['label'], entry['group'])
+
+    if 'import_vars' in entry:
+        import_vars(entry['import_vars'], group)
 
     if 'vars' in entry:
         parse_vars(entry['vars'], group)
@@ -275,6 +283,9 @@ def parse_host(entry):
         if 'vars' in entry:
             parse_vars(entry['vars'], host)
 
+        if 'import_vars' in entry:
+            import_vars(entry['import_vars'], host)
+
         if 'groups' in entry:
             for group_entry in entry['groups']:
                 group = parse_group(group_entry)
@@ -286,7 +297,7 @@ def parse_yaml(yaml_config):
     globals.groups = []
     globals.all_hosts = Group('all')
     ### this is a special group to allow parents of all, which you can't do normally
-    globals.meta = Group('meta')
+    globals.meta = Group('_all')
     globals.groups.append(globals.all_hosts)
     globals.groups.append(globals.meta)
 
