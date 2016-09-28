@@ -25,27 +25,74 @@ or
 
 - host: <hostname>
   vars:
-  - myvar: value
-  - myvbr: vblue
+    - myvar: value
+    - myvbr: vblue
   groups:
-  - mygroup1
-  - mygroup2
+    - membergroup1
+    - membergroup2
 
 or
 
 - group: <groupname>
   vars:
-  - groupvar: value
+    - groupvar: value
   hosts:
-  - myhost1
-  - host: myhost2
-    vars:
-      myvcr: vclue
-  groups:
-  - subgroup1
-  - subgroup2
+    - myhost1
+    - host: myhost2
+      vars:
+        - myvcr: vclue
+  children:
+    - child1
+    - child2
+  parents:
+    - parent1
+    - parent2
 
 Any statement except the first definition is optional.
+
+Nesting is also allowed:
+
+- group: all
+  vars:
+   - product: myapplication
+   - tier: production
+
+- group: postgresql
+  children:
+    - group: siteA
+      vars:
+        - virtual_ip: 192.168.2.252
+      hosts:
+        - 192.168.2.245
+        - 192.168.2.246
+        - host: 192.168.2.247
+          vars:
+            - promotable: False
+          groups:
+            - backup
+
+    - group: siteB
+      vars:
+        - virtual_ip: 192.168.2.253
+      hosts:
+        - 192.168.2.248
+        - 192.168.2.249
+        - host: 192.168.2.250
+          vars:
+            - promotable: False
+
+- group: app
+  children:
+    - group: siteA
+      hosts:
+        - 192.168.2.1
+        - 192.168.2.2
+
+    - group: siteB
+      hosts:
+        - 192.168.2.3
+        - 192.168.2.4
+
 """
 
 import json
@@ -56,11 +103,16 @@ from optparse import OptionParser
 
 import yaml
 
+### import a dummy class to use for globals
+class globals: pass
+
 class Host():
     def __init__(self, name):
         self.name = name
         self.groups = []
         self.vars = {}
+        globals.all_hosts.add_host(self)
+
     def __repr__(self):
         return "Host('%s')"%(self.name)
 
@@ -85,19 +137,14 @@ class Group():
         self.name = name
         self.hosts = []
         self.vars = {}
-        self.subgroups = []
+        self.children = []
         self.parents = []
     def __repr__(self):
         return "Group('%s')"%(self.name)
 
     def get_hosts(self):
-        """ List all hosts in this group, including subgroups """
+        """ List all hosts in this group, not including children """
         result = [ host for host in self.hosts ]
-        for group in self.subgroups:
-            if group.name != 'all':
-                for host in group.get_hosts():
-                    if host not in result:
-                        result.append(host)
         return result
 
     def add_host(self, host):
@@ -105,15 +152,15 @@ class Group():
             self.hosts.append(host)
             host.add_group(self)
 
-    def add_subgroup(self, group):
-        if group not in self.subgroups:
-            self.subgroups.append(group)
+    def add_child(self, group):
+        if group not in self.children:
+            self.children.append(group)
             group.add_parent(self)
 
     def add_parent(self, group):
         if group not in self.parents:
             self.parents.append(group)
-            group.add_subgroup(self)
+            group.add_child(self)
 
     def set_variable(self, key, value):
         self.vars[key] = value
@@ -130,6 +177,11 @@ def find_group(name, groups):
         if name == group.name:
             return group
 
+def find_host(name):
+    for host in globals.all_hosts.get_hosts():
+        if name == host.name:
+            return host
+
 def parse_vars(vars, obj):
     ### vars can be a list of dicts or a dictionary
     if type(vars) == dict:
@@ -140,117 +192,101 @@ def parse_vars(vars, obj):
             k,v = var.items()[0]
             obj.set_variable(k, v)
 
-def parse_yaml(yaml_hosts):
-    groups = []
+def parse_group(entry):
+    if type(entry) in [str, unicode]:
+        group = find_group(entry, globals.groups)
+        if not group:
+            group = Group(entry)
+            globals.groups.append(group)
+    if 'group' in entry:
+        group = find_group(entry['group'], globals.groups)
+        if not group:
+            group = Group(entry['group'])
+            globals.groups.append(group)
 
-    all_hosts = Group('all')
+    if 'vars' in entry:
+        parse_vars(entry['vars'], group)
 
-    ungrouped = Group('ungrouped')
-    groups.append(ungrouped)
+    if 'hosts' in entry:
+        for host_entry in entry['hosts']:
+            host = parse_host(host_entry)
+            group.add_host(host)
+
+    if 'children' in entry:
+        for child_entry in entry['children']:
+            if type(child_entry) in [str, unicode]:
+                child_name = child_entry
+            elif 'group' in entry:
+                child_name = child_entry['group'] 
+
+            parse_group(child_entry)
+            child = find_group(child_name, globals.groups)
+            group.add_child(child)
+
+    if 'parents' in entry:
+        for parent_entry in entry['parents']:
+            if type(parent_entry) in [str, unicode]:
+                parent_name = parent_entry
+            elif 'group' in entry:
+                parent_name = parent_entry['group'] 
+
+            parse_group(parent_entry)
+            parent = find_group(parent_name, globals.groups)
+            group.add_parent(parent)
+
+    return group
+
+def parse_host(entry):
+    ### a host is either a dict or a single line definition
+    if type(entry) in [str, unicode]:
+        for test_host in globals.all_hosts.get_hosts():
+            if test_host.name == entry:
+                break
+        else:
+            host = Host(entry)
+
+    elif 'host' in entry:
+        host = find_host(entry['host'])
+        if not host:
+            host = Host(entry['host'])
+
+        if 'vars' in entry:
+            parse_vars(entry['vars'], host)
+
+        if 'groups' in entry:
+            for group_entry in entry['groups']:
+                group = parse_group(group_entry)
+                group.add_host(host) 
+
+    return host
+
+def parse_yaml(yaml_config):
+    globals.groups = []
+    globals.all_hosts = Group('all')
+
+    globals.ungrouped = Group('ungrouped')
+    globals.groups.append(globals.ungrouped)
 
     ### groups first, so hosts can be added to 'ungrouped' if necessary
-    subgroups = []
-    parents = []
-    for entry in yaml_hosts:
-        if 'group' in entry and type(entry)==dict:
-            group = find_group(entry['group'], groups)
-            if not group:
-                group = Group(entry['group'])
-                groups.append(group)
+    for entry in yaml_config:
+        if 'group' in entry:
+            parse_group(entry)
 
-            if 'vars' in entry:
-                parse_vars(entry['vars'], group)
+        if 'host' in entry:
+            parse_host(entry)
 
-            if 'hosts' in entry:
-                for host_entry in entry['hosts']:
-                    host = None
+    for group in globals.groups:
+        group.add_child(globals.all_hosts)
 
-                    if type(host_entry) in [str, unicode]:
-		        host_name = host_entry
-                    else:
-                        host_name = host_entry['host'] 
-
-                    for test_host in all_hosts.get_hosts():
-                        if test_host.name == host_name:
-                            host = test_host
-                            break
-                    else:
-                        host = Host(host_name)
-
-                    all_hosts.add_host(host)
-		    group.add_host(host)
-
-                    if type(host_entry) not in [str, unicode]:
-                        if 'vars' in host_entry:
-                            parse_vars(host_entry['vars'], host)
-
-            if 'groups' in entry:
-                for subgroup in entry['groups']:
-                    subgroups.append((group.name, subgroup))
-
-            if 'parents' in entry:
-                for parent in entry['parents']:
-                    parents.append((group.name, parent))
-
-    for name, sub_name in subgroups:
-        group = find_group(name, groups)
-        subgroup = find_group(sub_name, groups)
-        group.add_subgroup(subgroup)
-
-    for name, parent_name in parents:
-        group = find_group(name, groups)
-        parent = find_group(parent_name, groups)
-        if not parent:
-            parent = Group(parent_name)
-            groups.append(parent)
-        group.add_parent(parent)
-
-    for entry in yaml_hosts:
-        ### a host is either a dict or a single line definition
-        if type(entry) in [str, unicode]:
-            for test_host in all_hosts.get_hosts():
-                if test_host.name == entry:
-                    break
-            else:
-                host = Host(entry)
-                all_hosts.add_host(host)
-                ungrouped.add_host(host)
-
-        elif 'host' in entry:
-            host = None
-            no_group = False
-            for test_host in all_hosts.get_hosts():
-                ### all hosts contains only hosts already in groups
-                if test_host.name == entry['host']:
-                    host = test_host
-                    break
-            else:
-                host = Host(entry['host'])
-                all_hosts.add_host(host)
-                no_group = True
-
-            if 'vars' in entry:
-                parse_vars(entry['vars'], host)
-
-            if 'groups' in entry:
-                for test_group in groups:
-                    if test_group.name in entry['groups']:
-                        test_group.add_host(host)
-                        all_hosts.add_host(host)
-                        no_group = False
-
-            if no_group:
-                ungrouped.add_host(host)
-
-    for group in groups:
-      group.add_subgroup(all_hosts)
-
-    return groups, all_hosts
+    for host in globals.all_hosts.get_hosts():
+        if len(host.groups) <= 1:
+            globals.ungrouped.add_host(host)
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
 
 parser = OptionParser()
 parser.add_option('-f', '--file', default=os.path.join(base_dir, "hosts.yaml"), dest="yaml_file")
+parser.add_option('-p', '--pretty', default=False, dest="pretty_print",  action="store_true")
 parser.add_option('-l', '--list', default=False, dest="list_hosts", action="store_true")
 parser.add_option('-H', '--host', default=None, dest="host")
 parser.add_option('-e', '--extra-vars', default=None, dest="extra")
@@ -259,34 +295,36 @@ options, args = parser.parse_args()
 hosts_file = options.yaml_file
 
 with open(hosts_file) as f:
-    yaml_hosts = yaml.load( f.read() )
+    yaml_config = yaml.load( f.read() )
 
-groups, all_hosts = parse_yaml(yaml_hosts)
+parse_yaml(yaml_config)
 
 if options.list_hosts == True:
     result = {}
     result['_meta'] = {}
     result['_meta']['hostvars'] = {}
-    for group in groups:
+    for group in globals.groups:
         result[group.name]={}
         result[group.name]['hosts'] = [host.name for host in group.get_hosts()]
         result[group.name]['vars'] = group.vars
-        result[group.name]['children'] = [subgroup.name for subgroup in group.subgroups if subgroup.name != 'all']
-    for host in all_hosts.get_hosts():
+        result[group.name]['children'] = [child.name for child in group.children if child.name != 'all']
+    for host in globals.all_hosts.get_hosts():
         result['_meta']['hostvars'][host.name] = host.get_variables()
         if options.extra:
             k,v = options.extra.split("=")
             result[k] = v
 
-    print json.dumps(result)
-    print json.dumps(result, sort_keys=True,
-        indent=4, separators=(',', ': '))
+    if options.pretty_print:
+        print json.dumps(result, sort_keys=True,
+            indent=4, separators=(',', ': '))
+    else:
+        print json.dumps(result)
     sys.exit(0)
 
 if options.host is not None:
     result = {}
     host = None
-    for test_host in all_hosts.get_hosts():
+    for test_host in globals.all_hosts.get_hosts():
         if test_host.name == options.host:
             host = test_host
             break
