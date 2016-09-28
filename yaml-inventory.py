@@ -123,6 +123,7 @@ class Host():
         self.groups = []
         self.vars = {}
         globals.all_hosts.add_host(self)
+        globals.meta.add_host(self)
 
     def __repr__(self):
         return "Host('%s')"%(self.name)
@@ -168,6 +169,8 @@ class Group():
             host.add_group(self)
 
     def add_child(self, group):
+        if group.name == 'all':
+            group = globals.meta
         if group not in self.children:
             self.children.append(group)
             group.add_parent(self)
@@ -282,21 +285,17 @@ def parse_host(entry):
 def parse_yaml(yaml_config):
     globals.groups = []
     globals.all_hosts = Group('all')
-    globals.ungrouped = Group('ungrouped')
+    ### this is a special group to allow parents of all, which you can't do normally
+    globals.meta = Group('meta')
     globals.groups.append(globals.all_hosts)
-    globals.groups.append(globals.ungrouped)
+    globals.groups.append(globals.meta)
 
-    ### groups first, so hosts can be added to 'ungrouped' if necessary
     for entry in yaml_config:
         if 'group' in entry:
             parse_group(entry)
 
         if 'host' in entry:
             parse_host(entry)
-
-    for host in globals.all_hosts.get_hosts():
-        if len(host.groups) <= 1:
-            globals.ungrouped.add_host(host)
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -325,11 +324,13 @@ if options.list_hosts == True:
     result['_meta'] = {}
     result['_meta']['hostvars'] = {}
     for group in globals.groups:
+        if group.name == 'all':
+            continue
         result[group.name]={}
         result[group.name]['hosts'] = [host.name for host in group.get_hosts()]
         result[group.name]['vars'] = group.vars
-        result[group.name]['children'] = [child.name for child in group.children]
-        result[group.name]['parents'] = [parent.name for parent in group.parents]
+        result[group.name]['children'] = [child.name for child in group.children]# if child.name != 'all']
+        result[group.name]['parents'] = [parent.name for parent in group.parents]# if parent.name != 'all']
     for host in globals.all_hosts.get_hosts():
         result['_meta']['hostvars'][host.name] = host.get_variables()
         if options.extra:
