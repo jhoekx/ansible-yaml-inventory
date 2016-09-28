@@ -260,10 +260,8 @@ def parse_host(entry):
     host = None
     ### a host is either a dict or a single line definition
     if type(entry) in [str, unicode]:
-        for test_host in globals.all_hosts.get_hosts():
-            if test_host.name == entry:
-                break
-        else:
+        host = find_host(entry)
+        if not host:
             host = Host(entry)
 
     elif 'host' in entry:
@@ -326,7 +324,6 @@ if options.list_hosts == True:
     result = {}
     result['_meta'] = {}
     result['_meta']['hostvars'] = {}
-    print globals.all_hosts.hosts
     for group in globals.groups:
         result[group.name]={}
         result[group.name]['hosts'] = [host.name for host in group.get_hosts()]
@@ -358,7 +355,11 @@ if options.host is not None:
     if options.extra:
         k,v = options.extra.split("=")
         result[k] = v
-    print json.dumps(result)
+    if options.pretty_print:
+        print json.dumps(result, sort_keys=True,
+            indent=4, separators=(',', ': '))
+    else:
+        print json.dumps(result)
     sys.exit(0)
 
 parser.print_help()
