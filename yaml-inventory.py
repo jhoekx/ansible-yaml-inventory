@@ -98,10 +98,10 @@ Nesting is also allowed:
 import json
 import os
 import sys
+import yaml
 
 from optparse import OptionParser
 
-import yaml
 
 ### import a dummy class to use for globals
 class globals: pass
@@ -139,6 +139,10 @@ class Group():
         self.vars = {}
         self.children = []
         self.parents = []
+        #if self.name != 'all':
+            #self.add_parent(globals.all_hosts)
+            #globals.all_hosts.add_child(self)
+
     def __repr__(self):
         return "Group('%s')"%(self.name)
 
@@ -193,6 +197,7 @@ def parse_vars(vars, obj):
             obj.set_variable(k, v)
 
 def parse_group(entry):
+    group = None
     if type(entry) in [str, unicode]:
         group = find_group(entry, globals.groups)
         if not group:
@@ -204,13 +209,17 @@ def parse_group(entry):
             group = Group(entry['group'])
             globals.groups.append(group)
 
+    if 'label' in entry:
+        group.set_variable(entry['label'], entry['group'])
+
     if 'vars' in entry:
         parse_vars(entry['vars'], group)
 
     if 'hosts' in entry:
         for host_entry in entry['hosts']:
             host = parse_host(host_entry)
-            group.add_host(host)
+            if host:
+                group.add_host(host)
 
     if 'children' in entry:
         for child_entry in entry['children']:
@@ -219,9 +228,9 @@ def parse_group(entry):
             elif 'group' in entry:
                 child_name = child_entry['group'] 
 
-            parse_group(child_entry)
-            child = find_group(child_name, globals.groups)
-            group.add_child(child)
+            child = parse_group(child_entry)
+            if child:
+                group.add_child(child)
 
     if 'parents' in entry:
         for parent_entry in entry['parents']:
@@ -237,6 +246,7 @@ def parse_group(entry):
     return group
 
 def parse_host(entry):
+    host = None
     ### a host is either a dict or a single line definition
     if type(entry) in [str, unicode]:
         for test_host in globals.all_hosts.get_hosts():
@@ -263,8 +273,8 @@ def parse_host(entry):
 def parse_yaml(yaml_config):
     globals.groups = []
     globals.all_hosts = Group('all')
-
     globals.ungrouped = Group('ungrouped')
+    globals.groups.append(globals.all_hosts)
     globals.groups.append(globals.ungrouped)
 
     ### groups first, so hosts can be added to 'ungrouped' if necessary
@@ -275,9 +285,6 @@ def parse_yaml(yaml_config):
         if 'host' in entry:
             parse_host(entry)
 
-    for group in globals.groups:
-        group.add_child(globals.all_hosts)
-
     for host in globals.all_hosts.get_hosts():
         if len(host.groups) <= 1:
             globals.ungrouped.add_host(host)
@@ -285,7 +292,7 @@ def parse_yaml(yaml_config):
 base_dir = os.path.dirname(os.path.realpath(__file__))
 
 parser = OptionParser()
-parser.add_option('-f', '--file', default=os.path.join(base_dir, "hosts.yaml"), dest="yaml_file")
+parser.add_option('-f', '--file', default=os.environ.get('YAML_INV', os.path.join(base_dir, "hosts.yml")), dest="yaml_file")
 parser.add_option('-p', '--pretty', default=False, dest="pretty_print",  action="store_true")
 parser.add_option('-l', '--list', default=False, dest="list_hosts", action="store_true")
 parser.add_option('-H', '--host', default=None, dest="host")
@@ -294,8 +301,13 @@ options, args = parser.parse_args()
 
 hosts_file = options.yaml_file
 
-with open(hosts_file) as f:
-    yaml_config = yaml.load( f.read() )
+try:
+    with open(hosts_file) as f:
+        yaml_config = yaml.load(f.read())
+
+except IOError:
+    sys.stderr.write("Can't open file " + hosts_file)
+    sys.exit(1)
 
 parse_yaml(yaml_config)
 
@@ -303,11 +315,13 @@ if options.list_hosts == True:
     result = {}
     result['_meta'] = {}
     result['_meta']['hostvars'] = {}
+    print globals.all_hosts.hosts
     for group in globals.groups:
         result[group.name]={}
         result[group.name]['hosts'] = [host.name for host in group.get_hosts()]
         result[group.name]['vars'] = group.vars
-        result[group.name]['children'] = [child.name for child in group.children if child.name != 'all']
+        result[group.name]['children'] = [child.name for child in group.children]
+        result[group.name]['parents'] = [parent.name for parent in group.parents]
     for host in globals.all_hosts.get_hosts():
         result['_meta']['hostvars'][host.name] = host.get_variables()
         if options.extra:
@@ -319,6 +333,7 @@ if options.list_hosts == True:
             indent=4, separators=(',', ': '))
     else:
         print json.dumps(result)
+
     sys.exit(0)
 
 if options.host is not None:
