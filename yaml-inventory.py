@@ -216,20 +216,6 @@ def find_host(name):
         if name == host.name:
             return host
 
-def import_vars(vars, obj):
-    for var_import in vars:
-        if not os.path.isabs(var_import):
-            var_path = os.path.join(globals.directory, var_import)
-        else:
-            var_path = var_import
-        try:
-            with open(var_path) as f:
-                parse_vars(yaml.load(f.read()), obj)
-        except IOError:
-           sys.stderr.write("Can't open file " + var_path + "\n")
-           sys.exit(1)
-       
-
 def parse_vars(vars, obj):
     ### vars can be a list of dicts or a dictionary
     if type(vars) == dict:
@@ -255,9 +241,6 @@ def parse_group(entry):
 
     if 'label' in entry:
         group.set_variable(entry['label'], entry['group'])
-
-    if 'import_vars' in entry:
-        import_vars(entry['import_vars'], group)
 
     if 'vars' in entry:
         parse_vars(entry['vars'], group)
@@ -349,8 +332,6 @@ if not os.path.isabs(inventory_file):
 
 if os.path.basename(inventory_file) == '':
     inventory_file = os.path.join(inventory_file, "hosts.yml")
-
-globals.directory = os.path.dirname(os.path.realpath(inventory_file))
 
 try:
     with open(inventory_file) as f:
