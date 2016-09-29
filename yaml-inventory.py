@@ -191,12 +191,18 @@ class Group():
             group.add_child(self)
 
     def set_variable(self, key, value):
-        self.vars[key] = value
+        if type(value) == dict:
+            if key in self.vars:
+                self.vars[key].update(value)
+            else:
+                self.vars[key] = value.copy()
+        else:
+            self.vars[key] = value
 
     def get_variables(self):
         result = {}
         for group in self.parents:
-            result.update( group.get_variables() )
+            result.update(group.get_variables())
         result.update(self.vars)
         return result
 
@@ -211,9 +217,18 @@ def find_host(name):
             return host
 
 def import_vars(vars, obj):
-    for var_file in vars:
-        with open(var_file) as f:
-            parse_vars(yaml.load(f.read()), obj)
+    for var_import in vars:
+        if not os.path.isabs(var_import):
+            var_path = os.path.join(globals.directory, var_import)
+        else:
+            var_path = var_import
+        try:
+            with open(var_path) as f:
+                parse_vars(yaml.load(f.read()), obj)
+        except IOError:
+           sys.stderr.write("Can't open file " + var_path + "\n")
+           sys.exit(1)
+       
 
 def parse_vars(vars, obj):
     ### vars can be a list of dicts or a dictionary
@@ -321,21 +336,28 @@ def parse_yaml(yaml_config):
 base_dir = os.path.dirname(os.path.realpath(__file__))
 
 parser = OptionParser()
-parser.add_option('-f', '--file', default=os.environ.get('YAML_INV', os.path.join(base_dir, "hosts.yml")), dest="yaml_file")
 parser.add_option('-p', '--pretty', default=False, dest="pretty_print",  action="store_true")
 parser.add_option('-l', '--list', default=False, dest="list_hosts", action="store_true")
 parser.add_option('-H', '--host', default=None, dest="host")
 parser.add_option('-e', '--extra-vars', default=None, dest="extra")
 options, args = parser.parse_args()
 
-hosts_file = options.yaml_file
+inventory_file = os.environ.get('YAML_INV', "hosts.yml")
+
+if not os.path.isabs(inventory_file):
+    inventory_file = os.path.join(base_dir, inventory_file)
+
+if os.path.basename(inventory_file) == '':
+    inventory_file = os.path.join(inventory_file, "hosts.yml")
+
+globals.directory = os.path.dirname(os.path.realpath(inventory_file))
 
 try:
-    with open(hosts_file) as f:
+    with open(inventory_file) as f:
         yaml_config = yaml.load(f.read())
 
 except IOError:
-    sys.stderr.write("Can't open file " + hosts_file)
+    sys.stderr.write("Can't open file " + inventory_file + "\n")
     sys.exit(1)
 
 parse_yaml(yaml_config)
