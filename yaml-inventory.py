@@ -135,9 +135,22 @@ class Host():
         result = {}
         for group in self.groups:
             for k,v in group.get_variables().items():
-                result[k] = v
+                if type(v) == dict:
+                    if k in result:
+                        result[k].update(v)
+                    else:
+                        result[k] = v.copy()
+                else:
+                    result[k] = v
+
         for k, v in self.vars.items():
-            result[k] = v
+            if type(v) == dict:
+                if k in result:
+                    result[k].update(v)
+                else:
+                    result[k] = v.copy()
+            else:
+                result[k] = v
         return result
 
     def add_group(self, group):
@@ -151,9 +164,6 @@ class Group():
         self.vars = {}
         self.children = []
         self.parents = []
-        #if self.name != 'all':
-            #self.add_parent(globals.all_hosts)
-            #globals.all_hosts.add_child(self)
 
     def __repr__(self):
         return "Group('%s')"%(self.name)
@@ -340,8 +350,8 @@ if options.list_hosts == True:
         result[group.name]={}
         result[group.name]['hosts'] = [host.name for host in group.get_hosts()]
         result[group.name]['vars'] = group.vars
-        result[group.name]['children'] = [child.name for child in group.children]# if child.name != 'all']
-        result[group.name]['parents'] = [parent.name for parent in group.parents]# if parent.name != 'all']
+        result[group.name]['children'] = [child.name for child in group.children]
+        result[group.name]['parents'] = [parent.name for parent in group.parents]
     for host in globals.all_hosts.get_hosts():
         result['_meta']['hostvars'][host.name] = host.get_variables()
         if options.extra:
